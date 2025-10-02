@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PID-säädin – pieni simulaattori (yksi HTML-tiedosto)</title>
+  <style>
+    :root {
+      --bg: #0f172a;         /* tummansininen */
+      --panel: #111827;      /* tummanharmaa */
+      --text: #e5e7eb;       /* vaalea */
+      --muted: #9ca3af;
+      --accent: #22c55e;     /* vihreä mittaus */
+      --sp: #f59e0b;         /* oranssi asetusarvo */
+      --err: #ef4444;        /* punainen virhe */
+      --grid: #374151;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Noto Sans', 'Helvetica Neue', Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      background: linear-gradient(180deg, #0b1024 0%, #0f172a 100%); color: var(--text);
+    }
+    header {
+      padding: 16px 20px; border-bottom: 1px solid #1f2937;
+    }
+    header h1 {
+      margin: 0 0 6px 0; font-size: 20px; font-weight: 700;
+    }
+    header p { margin: 0; color: var(--muted); font-size: 14px; }
+    .wrap { padding: 16px; display: grid; gap: 16px; }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 1024px) {
+      .grid {
+        grid-template-columns: 420px minmax(480px, 1fr);
+        align-items: start;
+      }
+    }
+    .card {
+      background: rgba(17, 24, 39, 0.75);
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 6px 22px rgba(0,0,0,0.25);
+      backdrop-filter: blur(6px);
+    }
+    .card h2 {
+      margin: 0 0 10px 0; font-size: 16px; font-weight: 700;
+    }
+    .row { display: grid; gap: 10px; margin-bottom: 12px; }
+    .row.inline { grid-template-columns: 1fr auto; align-items: center; }
+    .label { font-size: 13px; color: var(--muted); }
+    .value { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .legend {
+      display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); align-items: center;
+    }
+    .swatch {
+      width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 6px;
+    }
+    .swatch.sp { background: var(--sp); }
+    .swatch.meas { background: var(--accent); }
+    .swatch.err { background: var(--err); }
+    .controls {
+      display: grid; gap: 14px;
+    }
+    .section-title { font-size: 13px; color: var(--muted); margin: 10px 0 4px 0; text-transform: uppercase; letter-spacing: 0.04em; }
+    .group {
+      border: 1px dashed #253045; border-radius: 10px; padding: 10px; display: grid; gap: 10px;
+    }
+    .radio-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .radio-row label { display: flex; gap: 6px; align-items: center; font-size: 14px; }
+    input[type="range"] { width: 100%; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    button {
+      background: #1f2937; color: var(--text);
+      border: 1px solid #2b364a; border-radius: 8px; padding: 8px 10px; cursor: pointer;
+    }
+    button:hover { background: #263246; }
+    button:active { transform: translateY(1px); }
+    #plot {
+      width: 100%; height: 340px; display: block; border-radius: 10px; background: #0b1222; border: 1px solid #1f2937;
+    }
+    details {
+      margin-top: 8px; color: #cbd5e1; font-size: 14px;
+    }
+    details summary { cursor: pointer; user-select: none; }
+    ul { margin: 6px 0 0 18px; }
+    .hint { color: var(--muted); font-size: 12px; }
+    .small { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PID-säädin – minisimulaattori</h1>
+    <p>Aseta P, I ja D, valitse asetusarvo (liukusäädin tai aaltomuoto), ja katso reaaliaikainen vaste. Kuvaajat vierivät vasemmalle.</p>
+  </header>
+
+  <div class="wrap">
+    <div class="grid">
+      <!-- OHJAUSPANEELI -->
+      <div class="card">
+        <h2>Ohjaimet</h2>
+        <div class="controls">
+          <div>
+            <div class="section-title">Asetusarvo (r)</div>
+            <div class="group">
+              <div class="radio-row">
+                <label><input type="radio" name="src" value="manual" checked /> Manuaali (liukusäädin)</label>
+                <label><input type="radio" name="src" value="square" /> Kanttiaalto</label>
+                <label><input type="radio" name="src" value="sine" /> Siniaalto</label>
+                <label><input type="radio" name="src" value="saw" /> Saha / ramppi</label>
+              </div>
+
+              <div class="row inline" id="rowManual">
+                <div class="label">Manuaali-asetusarvo</div>
+                <div class="value"><span id="spVal">50</span></div>
+                <input id="sp" type="range" min="0" max="100" value="50" step="1">
+              </div>
+
+              <div class="row inline" id="rowPeriod" style="display:none;">
+                <div class="label">Jakson pituus (s)</div>
+                <div class="value"><span id="periodVal">6.0</span></div>
+                <input id="period" type="range" min="1" max="20" value="6" step="0.1">
+              </div>
+              <div class="hint">Aaltomuodoissa amplitudi skaalataan 0–100 (keskitaso 50, paitsi saha: 0→100).</div>
+            </div>
+          </div>
+
+          <div>
+            <div class="section-title">PID-parametrit</div>
+            <div class="group">
+              <div class="row inline">
+                <div class="label">P (vahvistus)</div>
+                <div class="value"><span id="kpVal">1.50</span></div>
+                <input id="kp" type="range" min="0" max="10" value="1.5" step="0.01">
+              </div>
+              <div class="row inline">
+                <div class="label">I (1/s)</div>
+                <div class="value"><span id="kiVal">0.30</span></div>
+                <input id="ki" type="range" min="0" max="5" value="0.3" step="0.01">
+              </div>
+              <div class="row inline">
+                <div class="label">D (s)</div>
+                <div class="value"><span id="kdVal">0.10</span></div>
+                <input id="kd" type="range" min="0" max="5" value="0.1" step="0.01">
+              </div>
+              <div class="row inline">
+                <div class="label">Prosessin aikavakio τ (s)</div>
+                <div class="value"><span id="tauVal">1.50</span></div>
+                <input id="tau" type="range" min="0.2" max="10" value="1.5" step="0.1">
+              </div>
+              <div class="small">Säädin on toteutettu muotoon <b>u = Kp·e + Ki∫e dt + Kd·de/dt</b>, ulostulo rajataan 0–100 ja integraattorille on yksinkertainen anti-windup.</div>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button id="toggle">⏸︎ Pysäytä</button>
+            <button id="reset">↺ Nollaa tila</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- KUVAAJA -->
+      <div class="card">
+        <div class="legend" style="margin-bottom:8px;">
+          <span><span class="swatch sp"></span>asetusarvo r (oranssi)</span>
+          <span><span class="swatch meas"></span>mittaus y (vihreä)</span>
+          <span><span class="swatch err"></span>virhe e = r - y (punainen; nolla = keskiviiva 50)</span>
+        </div>
+        <canvas id="plot"></canvas>
+        <div class="small" style="margin-top:6px;">Aikaikkuna ≈ 15 s (oletus). Vieritys vasemmalle näyttää uusimman datan oikeassa reunassa.</div>
+
+        <details>
+          <summary>Teoria pähkinänkuoressa – mitä P, I ja D tekevät, ja miten säätää käytännössä?</summary>
+          <div style="margin-top:8px;">
+            <b>P (proportionaalinen)</b>: kasvattaa reagointinopeutta. Liian suuri P voi aiheuttaa <i>yliohjauksen</i> ja <i>huhuilun/oskillaation</i>.<br>
+            <b>I (integraalinen)</b>: poistaa <i>pysyväisvirheen</i>. Liika I tekee järjestelmästä hitaan & voi kasvattaa yliohjausta ja <i>windupia</i> (integraattori kasvaa lukkoon).
+            <br><b>D (derivatiivinen)</b>: ”ennakoi” muutosta (vaimentaa yliohjausta). Hyvä tärinän/huhuilun vaimentaja, mutta herkkä mittauskohinalle.
+            <hr style="border-color:#334155;">
+            <b>Perusvinkit säätöön</b>:
+            <ul>
+              <li><b>Reagointi liian hidas</b> → nosta P rauhallisesti; jos jää pysyväisvirhettä, nosta hiukan I:tä.</li>
+              <li><b>Huojuu / oskilloi</b> → laske P:tä; lisää tarvittaessa D:tä (vaimennus); vähennä I:tä.</li>
+              <li><b>Yliohjaus suuri</b> → pienennä P:tä tai kasvata D:tä; vähennä I:tä.</li>
+              <li><b>Mittaus kohisee</b> → pienennä D:tä (tai lisää mittauksen suodatusta); liian iso D korostaa kohinaa.</li>
+              <li><b>Windup (ulostulo täydessä rajassa & palautuminen hidas)</b> → pienennä I:tä, lisää anti-windup (tässä on perusversio), tarkista rajat.</li>
+            </ul>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // === Piirtoalue ja DPR-skaalaus ===
+    const canvas = document.getElementById('plot');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const cssWidth = canvas.clientWidth || 900;
+      const cssHeight = canvas.clientHeight || 340;
+      canvas.width = Math.floor(cssWidth * dpr);
+      canvas.height = Math.floor(cssHeight * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Piirrä CSS-pikseleissä
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // === UI-elementit ===
+    const radios = [...document.querySelectorAll('input[name="src"]')];
+    const rowManual = document.getElementById('rowManual');
+    const rowPeriod = document.getElementById('rowPeriod');
+    const sp = document.getElementById('sp');
+    const spVal = document.getElementById('spVal');
+    const period = document.getElementById('period');
+    const periodVal = document.getElementById('periodVal');
+
+    const kp = document.getElementById('kp');
+    const ki = document.getElementById('ki');
+    const kd = document.getElementById('kd');
+    const tau = document.getElementById('tau');
+    const kpVal = document.getElementById('kpVal');
+    const kiVal = document.getElementById('kiVal');
+    const kdVal = document.getElementById('kdVal');
+    const tauVal = document.getElementById('tauVal');
+
+    const btnToggle = document.getElementById('toggle');
+    const btnReset = document.getElementById('reset');
+
+    function updateUI() {
+      spVal.textContent = (+sp.value).toFixed(0);
+      periodVal.textContent = (+period.value).toFixed(1);
+      kpVal.textContent = (+kp.value).toFixed(2);
+      kiVal.textContent = (+ki.value).toFixed(2);
+      kdVal.textContent = (+kd.value).toFixed(2);
+      tauVal.textContent = (+tau.value).toFixed(2);
+      const src = radios.find(r => r.checked)?.value || 'manual';
+      rowManual.style.display = (src === 'manual') ? '' : 'none';
+      rowPeriod.style.display = (src === 'manual') ? 'none' : '';
+    }
+
+    sp.addEventListener('input', updateUI);
+    period.addEventListener('input', updateUI);
+    kp.addEventListener('input', updateUI);
+    ki.addEventListener('input', updateUI);
+    kd.addEventListener('input', updateUI);
+    tau.addEventListener('input', updateUI);
+    radios.forEach(r => r.addEventListener('change', updateUI));
+    updateUI();
+
+    // === Simulaation tila ===
+    let running = true;
+    let t = 0;                 // simulaatioaika (s)
+    const dt = 1 / 60;         // integrointiaskeleen kesto ~60 Hz
+    let y = 0;                 // prosessin mittaus (lähtö)
+    let ePrev = 0;             // virhe edellisessä askeleessa
+    let integ = 0;             // integraattorin tila
+    let u = 0;                 // säätimen ulostulo (0..100)
+    const uMin = 0, uMax = 100;
+
+    // yksinkertainen 1. kertaluvun prosessi: y_dot = ( -y + u ) / tau
+    function processStep(u, dt, tau) {
+      const dy = ((-y + u) / Math.max(0.0001, tau)) * dt;
+      y += dy;
+      // rajoita mittaus 0..100 välille selkeyden vuoksi (ei ole pakollista)
+      y = Math.max(0, Math.min(100, y));
+    }
+
+    function getSetpoint(now) {
+      const src = radios.find(r => r.checked)?.value || 'manual';
+      const T = Math.max(0.2, +period.value);
+      if (src === 'manual') return +sp.value;
+
+      const w = 2 * Math.PI / T;
+      if (src === 'sine') {
+        return 50 + 50 * Math.sin(w * now);
+      } else if (src === 'square') {
+        return (Math.sin(w * now) >= 0) ? 100 : 0;
+      } else if (src === 'saw') {
+        const ph = (now % T) / T;
+        return 100 * ph; // 0 → 100
+      }
+      return +sp.value;
+    }
+
+    // Anti-windup: ehdollinen integrointi saturaatiossa
+    function pidStep(r, dt) {
+      const e = r - y;
+      const Kp = +kp.value, Ki = +ki.value, Kd = +kd.value;
+
+      const de = (e - ePrev) / dt;
+      let uUnsat = Kp * e + Ki * integ + Kd * de;
+
+      // Ehdollinen integraatio: jos saturaatiossa ja virhe pahentaa saturaatiota → älä integroi
+      let willSaturateHigh = (uUnsat > uMax);
+      let willSaturateLow  = (uUnsat < uMin);
+
+      const integrate =
+        (!willSaturateHigh || e < 0) &&
+        (!willSaturateLow  || e > 0);
+
+      if (integrate) {
+        integ += e * dt;
+      }
+
+      // Laske uudestaan, jos integraatio muuttui
+      uUnsat = Kp * e + Ki * integ + Kd * de;
+
+      // Rajaa ulostulo
+      u = Math.max(uMin, Math.min(uMax, uUnsat));
+
+      ePrev = e;
+      return { e, u };
+    }
+
+    // === Piirtopuskuri (uudempi data oikealla) ===
+    let rBuf = [];   // asetusarvo
+    let yBuf = [];   // mittaus
+    let eBuf = [];   // virhe
+    function pushSample(r, yv, e) {
+      const maxSamples = Math.max(200, Math.floor((canvas.clientWidth || 900)));
+      function pushAndTrim(arr, v) {
+        arr.push(v);
+        if (arr.length > maxSamples) arr.shift();
+      }
+      pushAndTrim(rBuf, r);
+      pushAndTrim(yBuf, yv);
+      pushAndTrim(eBuf, e);
+    }
+
+    // === Piirtäminen ===
+    function draw() {
+      const w = canvas.clientWidth || 900;
+      const h = canvas.clientHeight || 340;
+
+      // Tausta
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#0b1222';
+      ctx.fillRect(0, 0, w, h);
+
+      // Ruudukko (0, 50, 100)
+      ctx.strokeStyle = 'rgba(148,163,184,0.18)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      [0, 50, 100].forEach(v => {
+        const ypx = h - (v / 100) * h;
+        ctx.beginPath();
+        ctx.moveTo(0, ypx);
+        ctx.lineTo(w, ypx);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+
+      // Apufunktiot: arvosta pikseliin (0..100 → 0..h)
+      const toY = (val) => h - (val / 100) * h;
+      const toYErr = (err) => { // virhe piirretty niin, että 0-virhe = 50
+        const val = Math.max(0, Math.min(100, 50 + err));
+        return toY(val);
+      };
+
+      // Piirretään vain se osa, joka mahtuu leveydelle (1 px / näyte)
+      const len = Math.min(rBuf.length, w);
+      if (len < 2) return;
+
+      const startIndex = rBuf.length - len;
+
+      // Asetusarvo (oranssi)
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--sp').trim() || '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < len; i++) {
+        const x = w - (len - 1 - i);
+        const ypx = toY(rBuf[startIndex + i]);
+        if (i === 0) ctx.moveTo(x, ypx);
+        else ctx.lineTo(x, ypx);
+      }
+      ctx.stroke();
+
+      // Mittaus (vihreä)
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#22c55e';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < len; i++) {
+        const x = w - (len - 1 - i);
+        const ypx = toY(yBuf[startIndex + i]);
+        if (i === 0) ctx.moveTo(x, ypx);
+        else ctx.lineTo(x, ypx);
+      }
+      ctx.stroke();
+
+      // Virhe (punainen)
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--err').trim() || '#ef4444';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < len; i++) {
+        const x = w - (len - 1 - i);
+        const ypx = toYErr(eBuf[startIndex + i]);
+        if (i === 0) ctx.moveTo(x, ypx);
+        else ctx.lineTo(x, ypx);
+      }
+      ctx.stroke();
+
+      // Keskiviiva-etiketti (nollavirhe)
+      ctx.fillStyle = 'rgba(148,163,184,0.8)';
+      ctx.font = '12px system-ui, Segoe UI, Arial';
+      ctx.fillText('50 (nollavirhe)', 8, toY(50) - 6);
+    }
+
+    // === Simulaatio + animaatio ===
+    let rafId = 0;
+    function stepOnce() {
+      const r = getSetpoint(t);
+      const { e, u: uOut } = pidStep(r, dt);
+      processStep(uOut, dt, +tau.value);
+      pushSample(r, y, e);
+      t += dt;
+    }
+
+    function tick() {
+      if (running) {
+        stepOnce();
+        draw();
+      }
+      rafId = requestAnimationFrame(tick);
+    }
+    rafId = requestAnimationFrame(tick);
+
+    // === Napit ===
+    btnToggle.addEventListener('click', () => {
+      running = !running;
+      btnToggle.textContent = running ? '⏸︎ Pysäytä' : '▶ Jatka';
+    });
+
+    btnReset.addEventListener('click', () => {
+      y = 0; ePrev = 0; integ = 0; u = 0; t = 0;
+      rBuf = []; yBuf = []; eBuf = [];
+    });
+
+    // Varmuuden vuoksi päivitä aloitusruutu
+    (function initWarmup(){
+      for (let i = 0; i < 60; i++) stepOnce();
+      draw();
+    })();
+  </script>
+</body>
+</html>

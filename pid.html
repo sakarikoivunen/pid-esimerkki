@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8">
+  <title>PID-säädin Simulaatio</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    canvas { border: 1px solid #ccc; }
+    .controls { margin-bottom: 20px; }
+    .slider { margin: 10px 0; }
+    label { display: block; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>PID-säädin Simulaatio</h1>
+
+  <div class="controls">
+    <label>Aaltomuoto:
+      <select id="waveform">
+        <option value="manual">Manuaalinen</option>
+        <option value="sine">Siniaalto</option>
+        <option value="square">Kanttiaalto</option>
+        <option value="saw">Saha-aalto</option>
+      </select>
+    </label>
+    <label>Asetusarvo: <input type="range" id="setpoint" min="0" max="100" value="50"></label>
+    <label>P: <input type="range" id="kp" min="0" max="5" step="0.1" value="1"></label>
+    <label>I: <input type="range" id="ki" min="0" max="1" step="0.01" value="0.1"></label>
+    <label>D: <input type="range" id="kd" min="0" max="2" step="0.1" value="0.5"></label>
+  </div>
+
+  <canvas id="graph" width="800" height="300"></canvas>
+
+  <h2>PID-parametrien vaikutus</h2>
+  <ul>
+    <li><strong>P (Proportional):</strong> Lisää reagointia virheeseen. Liian suuri arvo voi aiheuttaa huojuntaa.</li>
+    <li><strong>I (Integral):</strong> Korjaa pysyvän virheen. Liian suuri arvo voi aiheuttaa yliohjausta.</li>
+    <li><strong>D (Derivative):</strong> Vaimennusta ja ennakointia. Liian suuri arvo voi tehdä järjestelmästä hitaan.</li>
+  </ul>
+
+  <h2>Säätövinkkejä</h2>
+  <ul>
+    <li>Jos mittaus huojuu: vähennä P ja/tai lisää D.</li>
+    <li>Jos reagointi on liian hidas: lisää P tai vähennä D.</li>
+    <li>Jos virhe ei koskaan nollaudu: lisää I.</li>
+  </ul>
+
+  <script>
+    const canvas = document.getElementById('graph');
+    const ctx = canvas.getContext('2d');
+    const waveform = document.getElementById('waveform');
+    const setpointSlider = document.getElementById('setpoint');
+    const kpSlider = document.getElementById('kp');
+    const kiSlider = document.getElementById('ki');
+    const kdSlider = document.getElementById('kd');
+
+    let data = [];
+    let time = 0;
+    let integral = 0;
+    let prevError = 0;
+    let measurement = 0;
+
+    function getSetpoint(t) {
+      const mode = waveform.value;
+      if (mode === 'sine') return 50 + 30 * Math.sin(t / 50);
+      if (mode === 'square') return (Math.floor(t / 100) % 2 === 0) ? 80 : 20;
+      if (mode === 'saw') return (t % 200);
+      return parseFloat(setpointSlider.value);
+    }
+
+    function updatePID() {
+      const setpoint = getSetpoint(time);
+      const error = setpoint - measurement;
+      integral += error;
+      const derivative = error - prevError;
+
+      const kp = parseFloat(kpSlider.value);
+      const ki = parseFloat(kiSlider.value);
+      const kd = parseFloat(kdSlider.value);
+
+      const output = kp * error + ki * integral + kd * derivative;
+      measurement += output * 0.1; // simuloitu järjestelmä
+      prevError = error;
+
+      data.push({ t: time, setpoint, measurement, error });
+      if (data.length > canvas.width) data.shift();
+      time++;
+    }
+
+    function drawGraph() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+      data.forEach((point, i) => {
+        ctx.strokeStyle = 'red';
+        ctx.lineTo(i, canvas.height - point.setpoint * 3);
+      });
+      ctx.stroke();
+
+      ctx.beginPath();
+      data.forEach((point, i) => {
+        ctx.strokeStyle = 'blue';
+        ctx.lineTo(i, canvas.height - point.measurement * 3);
+      });
+      ctx.stroke();
+
+      ctx.beginPath();
+      data.forEach((point, i) => {
+        ctx.strokeStyle = 'green';
+        ctx.lineTo(i, canvas.height - point.error * 3);
+      });
+      ctx.stroke();
+    }
+
+    function loop() {
+      updatePID();
+      drawGraph();
+      requestAnimationFrame(loop);
+    }
+
+    loop();
+  </script>
+</body>
+</html>
